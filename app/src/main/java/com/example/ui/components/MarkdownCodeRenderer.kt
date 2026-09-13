@@ -129,8 +129,8 @@ fun CodeBlockView(
         }
     }
 
-    val highlightedCode = remember(code) {
-        highlightOneDarkPro(code)
+    val highlightedCode = remember(code, language) {
+        highlightOneDarkPro(code, language)
     }
 
     Column(
@@ -240,20 +240,20 @@ fun FormattedParagraphView(
 }
 
 // Token-based One Dark Pro / GitHub Dark Syntax Highlighter
-fun highlightOneDarkPro(code: String): AnnotatedString {
-    val keywords = setOf(
-        "fun", "val", "var", "if", "else", "when", "return", "class", "interface",
-        "object", "package", "import", "true", "false", "null", "for", "while",
-        "do", "try", "catch", "finally", "throw", "is", "in", "by", "suspend",
-        "sealed", "data", "enum", "override", "companion", "private", "public",
-        "internal", "protected", "inline", "crossinline", "noinline", "reified"
-    )
+fun highlightOneDarkPro(code: String, language: String): AnnotatedString {
+    val keywords = when (language.lowercase()) {
+        "python" -> setOf("def", "class", "import", "from", "if", "else", "elif", "while", "for", "in", "return", "try", "except", "with", "as", "lambda", "pass", "None", "True", "False")
+        "java", "kotlin" -> setOf("fun", "val", "var", "if", "else", "when", "return", "class", "interface", "object", "package", "import", "true", "false", "null", "for", "while", "do", "try", "catch", "finally", "throw", "is", "in", "by", "suspend", "sealed", "data", "enum", "override", "companion", "private", "public", "internal", "protected", "inline", "crossinline", "noinline", "reified")
+        "javascript", "js" -> setOf("const", "let", "var", "function", "if", "else", "return", "for", "while", "class", "import", "export", "from", "async", "await", "try", "catch", "new", "this", "true", "false", "null", "undefined")
+        else -> setOf("fun", "val", "var", "if", "else", "when", "return", "class", "interface", "object", "package", "import", "true", "false", "null", "for", "while", "do", "try", "catch", "finally", "throw", "is", "in", "by", "suspend")
+    }
 
-    val types = setOf(
-        "String", "Int", "Boolean", "Long", "Float", "Double", "List", "Map",
-        "Set", "Flow", "StateFlow", "SharedFlow", "Modifier", "Composable",
-        "CoroutineScope", "Job", "Unit", "Any", "ChatMessage", "CopilotConfig"
-    )
+    val types = when (language.lowercase()) {
+        "python" -> setOf("str", "int", "bool", "float", "list", "dict", "set", "tuple", "object")
+        "java", "kotlin" -> setOf("String", "Int", "Boolean", "Long", "Float", "Double", "List", "Map", "Set", "Flow", "StateFlow", "SharedFlow", "Modifier", "Composable", "CoroutineScope", "Job", "Unit", "Any")
+        "javascript", "js" -> setOf("String", "Number", "Boolean", "Object", "Array", "Promise", "Function")
+        else -> setOf("String", "Int", "Boolean", "Long", "Float", "Double", "List", "Map", "Set", "Unit")
+    }
 
     return buildAnnotatedString {
         val lines = code.split("\n")

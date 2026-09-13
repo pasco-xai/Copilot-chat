@@ -54,7 +54,7 @@ fun WelcomeThreadView(
         Spacer(modifier = Modifier.height(16.dp))
 
         Text(
-            text = "GitHub Copilot",
+            text = "Claude Copilot",
             color = CopilotTheme.TextBright,
             fontSize = 20.sp,
             fontWeight = FontWeight.Bold,

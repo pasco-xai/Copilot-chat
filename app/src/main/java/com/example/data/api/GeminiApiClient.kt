@@ -139,13 +139,13 @@ object GeminiApiClient {
         val root = JSONObject()
         root.put("contents", contentsJson)
 
-        // System Instruction: Act as GitHub Copilot
+        // System Instruction: Act as Claude Copilot
         val sysInstruction = JSONObject()
         val sysParts = JSONArray()
         sysParts.put(
             JSONObject().put(
                 "text",
-                "You are GitHub Copilot, an expert AI programming assistant. Provide concise, clean, highly idiomatic code with One Dark Pro / GitHub syntax highlighting, structured reasoning, and actionable follow-up suggestions."
+                "You are Claude Copilot, an expert AI programming assistant. Provide concise, clean, highly idiomatic code with One Dark Pro / GitHub syntax highlighting, structured reasoning, and actionable follow-up suggestions."
             )
         )
         sysInstruction.put("parts", sysParts)
@@ -241,7 +241,7 @@ object GeminiApiClient {
         } else {
             onSources(
                 listOf(
-                    SourceReference(title = "GitHub Copilot Documentation", url = "https://docs.github.com/copilot"),
+                    SourceReference(title = "Claude Copilot Documentation", url = "https://docs.github.com/copilot"),
                     SourceReference(title = "Android Developer Guides", url = "https://developer.android.com")
                 )
             )
@@ -427,11 +427,11 @@ fun CopilotSolutionComponent(
 }
 ```
 
-Alle Komponenten entsprechen der GitHub Copilot Design-Spezifikation.
+Alle Komponenten entsprechen der Claude Copilot Design-Spezifikation.
             """.trimIndent()
 
             sources = listOf(
-                SourceReference(title = "GitHub Copilot Architecture", url = "https://docs.github.com/en/copilot"),
+                SourceReference(title = "Claude Copilot Architecture", url = "https://docs.github.com/en/copilot"),
                 SourceReference(title = "Jetpack Compose Modern Guidelines", url = "https://developer.android.com/jetpack/compose")
             )
             followUps = listOf(

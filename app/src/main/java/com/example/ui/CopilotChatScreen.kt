@@ -114,10 +114,16 @@ fun CopilotChatScreen(
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
 
-    // Auto-scroll to bottom on message update
+    // Auto-scroll to bottom on message update if user is near bottom
     LaunchedEffect(messages.size, messages.lastOrNull()?.activeBranch?.content?.length) {
         if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.size - 1)
+            val totalItems = listState.layoutInfo.totalItemsCount
+            val lastVisibleItemIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            
+            // If the user is near the end, scroll.
+            if (lastVisibleItemIndex >= totalItems - 3) {
+                listState.animateScrollToItem(messages.size - 1)
+            }
         }
     }
 
@@ -534,7 +540,7 @@ fun ChatMessageRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(
-                        text = "GitHub Copilot",
+                        text = "Claude Copilot",
                         color = CopilotTheme.TextBright,
                         fontSize = 12.5.sp,
                         fontWeight = FontWeight.SemiBold,
