@@ -1,0 +1,6 @@
+{
+  "name": "Copilot Chat",
+  "description": "A dark, GitHub Copilot-inspired AI chat UI with purple accents, streaming responses, monospace typography, reasoning, code highlighting, and branching.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
