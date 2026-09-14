@@ -86,6 +86,7 @@ fun CopilotComposer(
                 modifier = Modifier
                     .fillMaxWidth()
                     .onFocusChanged { isFocused = it.isFocused },
+                singleLine = false,
                 textStyle = TextStyle(
                     color = CopilotTheme.TextBright,
                     fontSize = 13.5.sp,
