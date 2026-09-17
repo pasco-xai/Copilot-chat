@@ -81,6 +81,14 @@ sealed class MarkdownSegment {
     data class Paragraph(val text: String) : MarkdownSegment()
 }
 
+private val KNOWN_CODE_LANGUAGES = setOf(
+    "python", "py", "javascript", "js", "typescript", "ts",
+    "html", "css", "xml", "json", "yaml", "yml", "sql", "bash", "sh", "shell",
+    "c", "cpp", "c++", "csharp", "c#", "cs", "java", "kotlin", "kt",
+    "go", "golang", "rust", "rs", "swift", "ruby", "rb", "php", "dart", "scala", "r",
+    "markdown", "md", "text", "txt", "code"
+)
+
 private fun parseMarkdownSegments(content: String): List<MarkdownSegment> {
     if (!content.contains("```")) {
         return listOf(MarkdownSegment.Paragraph(content))
@@ -92,12 +100,18 @@ private fun parseMarkdownSegments(content: String): List<MarkdownSegment> {
     parts.forEachIndexed { index, part ->
         if (index % 2 == 1) {
             // Code Block
-            val lines = part.trim().lines()
+            val lines = part.lines()
             val firstLine = lines.firstOrNull()?.trim() ?: ""
-            val hasLang = firstLine.isNotEmpty() && !firstLine.contains(" ") && firstLine.length < 20
-            val lang = if (hasLang) firstLine else "kotlin"
-            val codeBody = if (hasLang && lines.size > 1) {
-                lines.drop(1).joinToString("\n")
+            val isKnownLang = firstLine.lowercase() in KNOWN_CODE_LANGUAGES
+            val isValidIdentifier = firstLine.isNotEmpty() &&
+                firstLine.matches(Regex("^[a-zA-Z0-9_+#.-]+$")) &&
+                firstLine.length <= 15 &&
+                !firstLine.contains("(") && !firstLine.contains("=") && !firstLine.contains(";")
+
+            val hasLangTag = isKnownLang || isValidIdentifier
+            val lang = if (hasLangTag) firstLine.lowercase() else ""
+            val codeBody = if (hasLangTag && lines.size > 1) {
+                lines.drop(1).joinToString("\n").trimIndent()
             } else {
                 part.trim()
             }
@@ -161,9 +175,13 @@ fun CodeBlockView(
                         .clip(RoundedCornerShape(2.dp))
                         .background(CopilotTheme.PurplePrimary)
                 )
+                val displayLabel = when {
+                    language.isBlank() || language.equals("kotlin", ignoreCase = true) || language.equals("code", ignoreCase = true) -> "Code"
+                    else -> language.lowercase()
+                }
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = language.lowercase(),
+                    text = displayLabel,
                     color = CopilotTheme.PurpleLight,
                     fontSize = 11.5.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -241,18 +259,20 @@ fun FormattedParagraphView(
 
 // Token-based One Dark Pro / GitHub Dark Syntax Highlighter
 fun highlightOneDarkPro(code: String, language: String): AnnotatedString {
-    val keywords = when (language.lowercase()) {
-        "python" -> setOf("def", "class", "import", "from", "if", "else", "elif", "while", "for", "in", "return", "try", "except", "with", "as", "lambda", "pass", "None", "True", "False")
-        "java", "kotlin" -> setOf("fun", "val", "var", "if", "else", "when", "return", "class", "interface", "object", "package", "import", "true", "false", "null", "for", "while", "do", "try", "catch", "finally", "throw", "is", "in", "by", "suspend", "sealed", "data", "enum", "override", "companion", "private", "public", "internal", "protected", "inline", "crossinline", "noinline", "reified")
-        "javascript", "js" -> setOf("const", "let", "var", "function", "if", "else", "return", "for", "while", "class", "import", "export", "from", "async", "await", "try", "catch", "new", "this", "true", "false", "null", "undefined")
-        else -> setOf("fun", "val", "var", "if", "else", "when", "return", "class", "interface", "object", "package", "import", "true", "false", "null", "for", "while", "do", "try", "catch", "finally", "throw", "is", "in", "by", "suspend")
+    val langLower = language.lowercase()
+    val isPython = langLower == "python" || langLower == "py" || code.contains("def ") || (code.contains("import ") && code.contains("print("))
+    val isJs = langLower in setOf("javascript", "js", "typescript", "ts") || code.contains("const ") || code.contains("function ") || code.contains("console.log")
+
+    val keywords = when {
+        isPython -> setOf("def", "class", "import", "from", "if", "else", "elif", "while", "for", "in", "return", "try", "except", "with", "as", "lambda", "pass", "None", "True", "False")
+        isJs -> setOf("const", "let", "var", "function", "if", "else", "return", "for", "while", "class", "import", "export", "from", "async", "await", "try", "catch", "new", "this", "true", "false", "null", "undefined")
+        else -> setOf("fun", "val", "var", "if", "else", "when", "return", "class", "interface", "object", "package", "import", "true", "false", "null", "for", "while", "do", "try", "catch", "finally", "throw", "is", "in", "by", "suspend", "sealed", "data", "enum", "override", "companion", "private", "public", "internal", "protected", "inline", "crossinline", "noinline", "reified")
     }
 
-    val types = when (language.lowercase()) {
-        "python" -> setOf("str", "int", "bool", "float", "list", "dict", "set", "tuple", "object")
-        "java", "kotlin" -> setOf("String", "Int", "Boolean", "Long", "Float", "Double", "List", "Map", "Set", "Flow", "StateFlow", "SharedFlow", "Modifier", "Composable", "CoroutineScope", "Job", "Unit", "Any")
-        "javascript", "js" -> setOf("String", "Number", "Boolean", "Object", "Array", "Promise", "Function")
-        else -> setOf("String", "Int", "Boolean", "Long", "Float", "Double", "List", "Map", "Set", "Unit")
+    val types = when {
+        isPython -> setOf("str", "int", "bool", "float", "list", "dict", "set", "tuple", "object")
+        isJs -> setOf("String", "Number", "Boolean", "Object", "Array", "Promise", "Function")
+        else -> setOf("String", "Int", "Boolean", "Long", "Float", "Double", "List", "Map", "Set", "Flow", "StateFlow", "SharedFlow", "Modifier", "Composable", "CoroutineScope", "Job", "Unit", "Any")
     }
 
     return buildAnnotatedString {

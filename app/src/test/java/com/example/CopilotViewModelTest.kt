@@ -60,4 +60,27 @@ class CopilotViewModelTest {
         val updatedAssistant = viewModel.messages.value.last()
         assertEquals(FeedbackState.THUMBS_UP, updatedAssistant.activeBranch.feedback)
     }
+
+    @Test
+    fun `litert-lm model selection and offline hardware settings`() {
+        viewModel.setModel(com.example.data.api.GeminiApiClient.MODEL_GEMMA_LITERTLM)
+        assertEquals(com.example.data.api.GeminiApiClient.MODEL_GEMMA_LITERTLM, viewModel.selectedModel.value)
+
+        viewModel.setHardwareBackend(com.example.data.litert.LiteRtLmEngineManager.HardwareBackend.GPU_OPENCL)
+        assertEquals(com.example.data.litert.LiteRtLmEngineManager.HardwareBackend.GPU_OPENCL, viewModel.hardwareBackend.value)
+
+        viewModel.setKvCacheLimit(2048)
+        assertEquals(2048, viewModel.kvCacheLimit.value)
+    }
+
+    @Test
+    fun `litert-lm benchmark execution formats progress string safely`() = kotlinx.coroutines.test.runTest {
+        var lastProgress = ""
+        val result = com.example.data.litert.LiteRtLmEngineManager.runBenchmark { progress ->
+            lastProgress = progress
+        }
+        assertNotNull(result)
+        assertTrue(result.decodeSpeedTokPerSec > 0f)
+        assertTrue(lastProgress.contains("Decoding: 100%"))
+    }
 }

@@ -55,6 +55,16 @@ enum class MessageSender {
 }
 
 @Immutable
+data class InferenceMetrics(
+    val decodeSpeedTokensPerSec: Float = 0f,
+    val timeToFirstTokenMs: Long = 0L,
+    val totalTokens: Int = 0,
+    val memoryUsageMb: Int = 0,
+    val accelerator: String = "OpenCL GPU",
+    val isOffline: Boolean = true
+)
+
+@Immutable
 data class MessageBranch(
     val id: String = UUID.randomUUID().toString(),
     val content: String,
@@ -62,7 +72,8 @@ data class MessageBranch(
     val sources: List<SourceReference> = emptyList(),
     val followUps: List<String> = emptyList(),
     val feedback: FeedbackState = FeedbackState.NONE,
-    val timestamp: String
+    val timestamp: String,
+    val inferenceMetrics: InferenceMetrics? = null
 )
 
 @Immutable

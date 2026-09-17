@@ -1,14 +1,20 @@
 package com.example.ui
 
 import android.widget.Toast
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,19 +44,23 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -70,8 +80,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -85,6 +98,7 @@ import com.example.data.model.MessageSender
 import com.example.ui.components.AssistantActionBar
 import com.example.ui.components.CopilotComposer
 import com.example.ui.components.MarkdownCodeRenderer
+import com.example.ui.components.MessageActionsBottomSheet
 import com.example.ui.components.OfficialCopilotBadge
 import com.example.ui.components.ReasoningAccordion
 import com.example.ui.components.SourcesListView
@@ -92,7 +106,16 @@ import com.example.ui.components.WelcomeThreadView
 import com.example.ui.theme.CopilotTheme
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalLayoutApi::class)
+enum class CopilotScreenDestination {
+    CHAT,
+    SETTINGS
+}
+
+@OptIn(
+    ExperimentalMaterial3Api::class,
+    ExperimentalLayoutApi::class,
+    ExperimentalFoundationApi::class
+)
 @Composable
 fun CopilotChatScreen(
     viewModel: CopilotViewModel = viewModel(),
@@ -108,11 +131,15 @@ fun CopilotChatScreen(
     val pendingAttachments by viewModel.pendingAttachments.collectAsStateWithLifecycle()
     val editingMessageId by viewModel.editingMessageId.collectAsStateWithLifecycle()
     val editingText by viewModel.editingText.collectAsStateWithLifecycle()
+    val hardwareBackend by viewModel.hardwareBackend.collectAsStateWithLifecycle()
 
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+    var selectedMessageForActions by remember { mutableStateOf<ChatMessage?>(null) }
+    var currentScreen by remember { mutableStateOf(CopilotScreenDestination.CHAT) }
 
     // Auto-scroll to bottom on message update if user is near bottom
     LaunchedEffect(messages.size, messages.lastOrNull()?.activeBranch?.content?.length) {
@@ -139,33 +166,56 @@ fun CopilotChatScreen(
         }
     }
 
-    Scaffold(
-        modifier = modifier
-            .fillMaxSize()
-            .background(CopilotTheme.CanvasDark),
-        containerColor = CopilotTheme.CanvasDark,
-        contentWindowInsets = WindowInsets(0, 0, 0, 0)
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .windowInsetsPadding(WindowInsets.statusBars)
-        ) {
-            // Constrain center viewport to max 56rem (896dp) as required by prompt
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .widthIn(max = 896.dp)
-                    .align(Alignment.TopCenter)
-            ) {
-                // Top Copilot App Bar
-                CopilotHeader(
-                    thinkingEnabled = thinkingEnabled,
-                    searchEnabled = searchEnabled,
-                    onToggleThinking = { viewModel.toggleThinking() },
-                    onToggleSearch = { viewModel.toggleSearch() }
+    AnimatedContent(
+        targetState = currentScreen,
+        transitionSpec = {
+            if (targetState == CopilotScreenDestination.SETTINGS) {
+                (slideInHorizontally { width -> width } + fadeIn()).togetherWith(
+                    slideOutHorizontally { width -> -width / 4 } + fadeOut()
                 )
+            } else {
+                (slideInHorizontally { width -> -width / 4 } + fadeIn()).togetherWith(
+                    slideOutHorizontally { width -> width } + fadeOut()
+                )
+            }
+        },
+        label = "ScreenTransition",
+        modifier = modifier.fillMaxSize()
+    ) { destination ->
+        when (destination) {
+            CopilotScreenDestination.SETTINGS -> {
+                SettingsScreen(
+                    viewModel = viewModel,
+                    onNavigateBack = { currentScreen = CopilotScreenDestination.CHAT }
+                )
+            }
+            CopilotScreenDestination.CHAT -> {
+                Scaffold(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(CopilotTheme.CanvasDark),
+                    containerColor = CopilotTheme.CanvasDark,
+                    contentWindowInsets = WindowInsets(0, 0, 0, 0)
+                ) { innerPadding ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(innerPadding)
+                            .windowInsetsPadding(WindowInsets.statusBars)
+                    ) {
+                        // Constrain center viewport to max 56rem (896dp) as required by prompt
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .widthIn(max = 896.dp)
+                                .align(Alignment.TopCenter)
+                        ) {
+                            // Top Copilot App Bar
+                            CopilotHeader(
+                                selectedModel = selectedModel,
+                                onSelectModel = { viewModel.setModel(it) },
+                                onOpenSettings = { currentScreen = CopilotScreenDestination.SETTINGS }
+                            )
 
                 // Message Viewport / Chat thread
                 Box(
@@ -206,6 +256,10 @@ fun CopilotChatScreen(
                                     onSaveEdit = { viewModel.saveEdit(message.id) },
                                     onCancelEdit = { viewModel.cancelEditing() },
                                     onStartEdit = { viewModel.startEditing(message.id) },
+                                    onLongPress = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        selectedMessageForActions = message
+                                    },
                                     onBranchPrev = {
                                         viewModel.switchBranch(message.id, message.currentBranchIndex - 1)
                                     },
@@ -224,7 +278,8 @@ fun CopilotChatScreen(
                                     },
                                     onSelectFollowUp = { followUp ->
                                         viewModel.sendMessage(followUp)
-                                    }
+                                    },
+                                    selectedModel = selectedModel
                                 )
                             }
 
@@ -288,23 +343,56 @@ fun CopilotChatScreen(
                 }
             }
         }
+
+        // Long-press Actions Bottom Sheet
+        selectedMessageForActions?.let { selectedMsg ->
+            MessageActionsBottomSheet(
+                message = selectedMsg,
+                onDismiss = { selectedMessageForActions = null },
+                onRegenerate = {
+                    val msgId = selectedMsg.id
+                    selectedMessageForActions = null
+                    viewModel.regenerateMessage(msgId)
+                },
+                onEdit = {
+                    val msgId = selectedMsg.id
+                    selectedMessageForActions = null
+                    viewModel.startEditing(msgId)
+                },
+                onDelete = {
+                    val msgId = selectedMsg.id
+                    selectedMessageForActions = null
+                    viewModel.deleteMessage(msgId)
+                    Toast.makeText(context, "Message deleted", Toast.LENGTH_SHORT).show()
+                },
+                onCopy = {
+                    clipboardManager.setText(AnnotatedString(selectedMsg.activeBranch.content))
+                    selectedMessageForActions = null
+                    Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+                }
+            )
+        }
+    }
+}
+        }
     }
 }
 
 @Composable
 fun CopilotHeader(
-    thinkingEnabled: Boolean,
-    searchEnabled: Boolean,
-    onToggleThinking: () -> Unit,
-    onToggleSearch: () -> Unit,
+    selectedModel: String,
+    onSelectModel: (String) -> Unit,
+    onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var showModelMenu by remember { mutableStateOf(false) }
+
     Row(
         modifier = modifier
             .fillMaxWidth()
             .background(CopilotTheme.PanelHeaderDark)
             .border(0.5.dp, CopilotTheme.BorderSubtle)
-            .padding(horizontal = 14.dp, vertical = 9.dp),
+            .padding(horizontal = 14.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
@@ -323,47 +411,178 @@ fun CopilotHeader(
             )
         }
 
-        // Right controls: Thinking toggle, Search Grounding toggle
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            // Thinking Toggle Button
-            IconButton(
-                onClick = onToggleThinking,
+        // Center: Interactive Model Switcher Pill
+        Box {
+            val isOfflineGemma = selectedModel == GeminiApiClient.MODEL_GEMMA_LITERTLM
+            Row(
                 modifier = Modifier
-                    .size(28.dp)
-                    .clip(CircleShape)
-                    .background(if (thinkingEnabled) CopilotTheme.PurpleBadgeBg else Color.Transparent)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (isOfflineGemma) Color(0xFF0D281E) else CopilotTheme.UserBubble)
+                    .border(
+                        0.8.dp,
+                        if (isOfflineGemma) Color(0xFF10B981) else CopilotTheme.BorderSubtle,
+                        RoundedCornerShape(12.dp)
+                    )
+                    .clickable { showModelMenu = true }
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
+                if (isOfflineGemma) {
+                    Box(
+                        modifier = Modifier
+                            .size(7.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF10B981))
+                    )
+                    Text(
+                        text = "Gemma 4 • Offline",
+                        color = Color(0xFF34D399),
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = CopilotTheme.MonoFont
+                    )
+                } else if (selectedModel == GeminiApiClient.MODEL_FLASH) {
+                    Icon(
+                        imageVector = Icons.Default.Bolt,
+                        contentDescription = null,
+                        tint = Color(0xFF38BDF8),
+                        modifier = Modifier.size(13.dp)
+                    )
+                    Text(
+                        text = "Gemini Flash",
+                        color = Color(0xFF38BDF8),
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = CopilotTheme.MonoFont
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.SmartToy,
+                        contentDescription = null,
+                        tint = CopilotTheme.PurpleLight,
+                        modifier = Modifier.size(13.dp)
+                    )
+                    Text(
+                        text = "Gemini Pro",
+                        color = CopilotTheme.PurpleLight,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = CopilotTheme.MonoFont
+                    )
+                }
                 Icon(
-                    imageVector = Icons.Default.Psychology,
-                    contentDescription = "Thinking Mode",
-                    tint = if (thinkingEnabled) CopilotTheme.PurpleLight else CopilotTheme.TextFaint,
-                    modifier = Modifier.size(16.dp)
+                    imageVector = Icons.Default.KeyboardArrowDown,
+                    contentDescription = null,
+                    tint = CopilotTheme.TextMuted,
+                    modifier = Modifier.size(14.dp)
                 )
             }
 
-            // Search Grounding Toggle Button
-            IconButton(
-                onClick = onToggleSearch,
+            DropdownMenu(
+                expanded = showModelMenu,
+                onDismissRequest = { showModelMenu = false },
                 modifier = Modifier
-                    .size(28.dp)
-                    .clip(CircleShape)
-                    .background(if (searchEnabled) CopilotTheme.PurpleBadgeBg else Color.Transparent)
+                    .background(CopilotTheme.PanelDark)
+                    .border(0.6.dp, CopilotTheme.BorderSubtle, RoundedCornerShape(8.dp))
             ) {
-                Icon(
-                    imageVector = Icons.Default.Language,
-                    contentDescription = "Search Grounding",
-                    tint = if (searchEnabled) CopilotTheme.LinkBlue else CopilotTheme.TextFaint,
-                    modifier = Modifier.size(16.dp)
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF10B981))
+                                )
+                                Text(
+                                    text = "Gemma 4 E2B (LiteRT-LM)",
+                                    color = Color(0xFF34D399),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.5.sp,
+                                    fontFamily = CopilotTheme.MonoFont
+                                )
+                            }
+                            Text(
+                                text = "100% Offline • On-Device GPU Engine",
+                                color = CopilotTheme.TextMuted,
+                                fontSize = 10.5.sp
+                            )
+                        }
+                    },
+                    onClick = {
+                        onSelectModel(GeminiApiClient.MODEL_GEMMA_LITERTLM)
+                        showModelMenu = false
+                    }
+                )
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text(
+                                text = "Claude 3.5 Sonnet / Gemini Pro",
+                                color = CopilotTheme.TextBright,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.5.sp,
+                                fontFamily = CopilotTheme.MonoFont
+                            )
+                            Text(
+                                text = "Deep Thinking • Cloud",
+                                color = CopilotTheme.TextMuted,
+                                fontSize = 10.5.sp
+                            )
+                        }
+                    },
+                    onClick = {
+                        onSelectModel(GeminiApiClient.MODEL_PRO_THINKING)
+                        showModelMenu = false
+                    }
+                )
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text(
+                                text = "Claude 3.5 Haiku / Gemini Flash",
+                                color = CopilotTheme.TextBright,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.5.sp,
+                                fontFamily = CopilotTheme.MonoFont
+                            )
+                            Text(
+                                text = "Low Latency • Cloud",
+                                color = CopilotTheme.TextMuted,
+                                fontSize = 10.5.sp
+                            )
+                        }
+                    },
+                    onClick = {
+                        onSelectModel(GeminiApiClient.MODEL_FLASH)
+                        showModelMenu = false
+                    }
                 )
             }
+        }
+
+        // Right control: Settings button
+        IconButton(
+            onClick = onOpenSettings,
+            modifier = Modifier
+                .size(34.dp)
+                .clip(CircleShape)
+                .background(CopilotTheme.UserBubble)
+                .testTag("settings_button")
+        ) {
+            Icon(
+                imageVector = Icons.Default.Settings,
+                contentDescription = "Settings",
+                tint = CopilotTheme.TextBright,
+                modifier = Modifier.size(18.dp)
+            )
         }
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 fun ChatMessageRow(
     message: ChatMessage,
@@ -375,12 +594,14 @@ fun ChatMessageRow(
     onSaveEdit: () -> Unit,
     onCancelEdit: () -> Unit,
     onStartEdit: () -> Unit,
+    onLongPress: () -> Unit = {},
     onBranchPrev: () -> Unit,
     onBranchNext: () -> Unit,
     onCopy: () -> Unit,
     onReload: () -> Unit,
     onFeedback: (com.example.data.model.FeedbackState) -> Unit,
     onSelectFollowUp: (String) -> Unit,
+    selectedModel: String,
     modifier: Modifier = Modifier
 ) {
     val branch = message.activeBranch
@@ -470,7 +691,10 @@ fun ChatMessageRow(
                                     bottomEnd = 3.dp
                                 )
                             )
-                            .clickable { onStartEdit() }
+                            .combinedClickable(
+                                onClick = { onStartEdit() },
+                                onLongClick = onLongPress
+                            )
                             .padding(horizontal = 14.dp, vertical = 10.dp)
                     ) {
                         Column {
@@ -525,7 +749,13 @@ fun ChatMessageRow(
         ) {
             OfficialCopilotBadge(
                 size = 28.dp,
-                modifier = Modifier.padding(top = 2.dp)
+                modifier = Modifier
+                    .padding(top = 2.dp)
+                    .clip(CircleShape)
+                    .combinedClickable(
+                        onClick = {},
+                        onLongClick = onLongPress
+                    )
             )
 
             Spacer(modifier = Modifier.width(10.dp))
@@ -534,114 +764,224 @@ fun ChatMessageRow(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Header row: Copilot name and timestamp
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(
-                        text = "Claude Copilot",
-                        color = CopilotTheme.TextBright,
-                        fontSize = 12.5.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        fontFamily = CopilotTheme.MonoFont
-                    )
-                    Text(
-                        text = branch.timestamp,
-                        color = CopilotTheme.TextFaint,
-                        fontSize = 10.sp,
-                        fontFamily = CopilotTheme.MonoFont
-                    )
-                }
-
-                // Reasoning Accordion (if reasoning exists or active thinking)
-                val reasoningToShow = activeReasoning ?: branch.reasoning
-                if (!reasoningToShow.isNullOrBlank()) {
-                    ReasoningAccordion(
-                        reasoningText = reasoningToShow,
-                        isThinkingActive = isCurrentlyGenerating && branch.content.isBlank()
-                    )
-                }
-
-                // Main Markdown & Code Output
-                if (branch.content.isNotBlank()) {
-                    MarkdownCodeRenderer(content = branch.content)
-                } else if (isCurrentlyGenerating) {
-                    // Typing indicator
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        modifier = Modifier.padding(vertical = 4.dp)
+                if (isEditing) {
+                    // In-place edit card for assistant message
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(CopilotTheme.PanelDark)
+                            .border(1.dp, CopilotTheme.PurplePrimary, RoundedCornerShape(12.dp))
+                            .padding(10.dp)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(6.dp)
-                                .clip(CircleShape)
-                                .background(CopilotTheme.PurpleLight)
-                        )
                         Text(
-                            text = "Thinking...",
+                            text = "Edit Assistant Response",
                             color = CopilotTheme.PurpleLight,
-                            fontSize = 12.sp,
-                            fontFamily = CopilotTheme.MonoFont
-                        )
-                    }
-                }
-
-                // Citations / Sources list
-                if (branch.sources.isNotEmpty()) {
-                    SourcesListView(sources = branch.sources)
-                }
-
-                // Follow-up suggestion pills
-                if (branch.followUps.isNotEmpty() && !isCurrentlyGenerating) {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(
-                            text = "FOLLOW-UPS",
-                            color = CopilotTheme.TextFaint,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.5.sp,
                             fontFamily = CopilotTheme.MonoFont,
-                            letterSpacing = 1.sp
+                            fontWeight = FontWeight.SemiBold
                         )
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        BasicTextField(
+                            value = editingText,
+                            onValueChange = onEditingTextChange,
+                            textStyle = TextStyle(
+                                color = CopilotTheme.TextBright,
+                                fontSize = 13.sp,
+                                fontFamily = CopilotTheme.MonoFont,
+                                lineHeight = 19.sp
+                            ),
+                            cursorBrush = SolidColor(CopilotTheme.PurpleLight),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            branch.followUps.forEach { suggestion ->
+                            OutlinedButton(
+                                onClick = onCancelEdit,
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = CopilotTheme.TextMuted),
+                                border = androidx.compose.foundation.BorderStroke(0.5.dp, CopilotTheme.BorderSubtle),
+                                shape = RoundedCornerShape(6.dp),
+                                modifier = Modifier.height(28.dp)
+                            ) {
+                                Text("Cancel", fontSize = 11.sp, fontFamily = CopilotTheme.MonoFont)
+                            }
+
+                            Spacer(modifier = Modifier.width(6.dp))
+
+                            Button(
+                                onClick = onSaveEdit,
+                                colors = ButtonDefaults.buttonColors(containerColor = CopilotTheme.PurplePrimary),
+                                shape = RoundedCornerShape(6.dp),
+                                modifier = Modifier.height(28.dp)
+                            ) {
+                                Text("Save", fontSize = 11.sp, fontFamily = CopilotTheme.MonoFont)
+                            }
+                        }
+                    }
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .combinedClickable(
+                                onClick = {},
+                                onLongClick = onLongPress
+                            )
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            // Header row: Copilot name and timestamp
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "Claude Copilot",
+                                    color = CopilotTheme.TextBright,
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontFamily = CopilotTheme.MonoFont
+                                )
+                                Text(
+                                    text = branch.timestamp,
+                                    color = CopilotTheme.TextFaint,
+                                    fontSize = 10.sp,
+                                    fontFamily = CopilotTheme.MonoFont
+                                )
+                            }
+
+                            // Reasoning Accordion (if reasoning exists or active thinking)
+                            val reasoningToShow = activeReasoning ?: branch.reasoning
+                            if (!reasoningToShow.isNullOrBlank()) {
+                                ReasoningAccordion(
+                                    reasoningText = reasoningToShow,
+                                    isThinkingActive = isCurrentlyGenerating && branch.content.isBlank()
+                                )
+                            }
+
+                            // Main Markdown & Code Output
+                            if (branch.content.isNotBlank()) {
+                                MarkdownCodeRenderer(content = branch.content)
+
+                                // Hardware & On-Device Telemetry Chip (when executed locally via LiteRT-LM)
+                                if (branch.inferenceMetrics != null) {
+                                    val metrics = branch.inferenceMetrics
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Row(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(Color(0xFF0F241C))
+                                            .border(0.6.dp, Color(0xFF10B981).copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                                            .padding(horizontal = 8.dp, vertical = 5.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(6.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(0xFF10B981))
+                                        )
+                                        val speedStr = "%.1f".format(java.util.Locale.US, metrics.decodeSpeedTokensPerSec)
+                                        Text(
+                                            text = "LiteRT-LM (Gemma 4 E2B) • ${metrics.accelerator} • $speedStr tok/s • 100% Offline",
+                                            color = Color(0xFF34D399),
+                                            fontSize = 10.5.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontFamily = CopilotTheme.MonoFont
+                                        )
+                                    }
+                                }
+                            } else if (isCurrentlyGenerating) {
+                                // Typing indicator
                                 Row(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(CopilotTheme.PanelDark)
-                                        .border(0.6.dp, CopilotTheme.PurplePrimary.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-                                    .clickable { onSelectFollowUp(suggestion) }
-                                    .padding(horizontal = 10.dp, vertical = 5.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                    modifier = Modifier.padding(vertical = 4.dp)
                                 ) {
+                                    val isGemma = selectedModel == GeminiApiClient.MODEL_GEMMA_LITERTLM
+                                    Box(
+                                        modifier = Modifier
+                                            .size(6.dp)
+                                            .clip(CircleShape)
+                                            .background(if (isGemma) Color(0xFF10B981) else CopilotTheme.PurpleLight)
+                                    )
                                     Text(
-                                        text = "✦ $suggestion",
-                                        color = CopilotTheme.PurpleLight,
-                                        fontSize = 11.sp,
+                                        text = if (isGemma) "LiteRT-LM Gemma 4 decoding on-device..." else "Thinking...",
+                                        color = if (isGemma) Color(0xFF34D399) else CopilotTheme.PurpleLight,
+                                        fontSize = 12.sp,
                                         fontFamily = CopilotTheme.MonoFont
                                     )
                                 }
                             }
+
+                            // Citations / Sources list
+                            if (branch.sources.isNotEmpty()) {
+                                SourcesListView(sources = branch.sources)
+                            }
                         }
                     }
-                }
 
-                // Action Bar (Branching, Copy, Reload, Feedback)
-                if (branch.content.isNotBlank() && !isCurrentlyGenerating) {
-                    AssistantActionBar(
-                        totalBranches = message.branches.size,
-                        currentBranchIndex = message.currentBranchIndex,
-                        feedbackState = branch.feedback,
-                        onBranchPrev = onBranchPrev,
-                        onBranchNext = onBranchNext,
-                        onCopy = onCopy,
-                        onReload = onReload,
-                        onFeedback = onFeedback
-                    )
+                    // Follow-up suggestion pills
+                    if (branch.followUps.isNotEmpty() && !isCurrentlyGenerating) {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                text = "FOLLOW-UPS",
+                                color = CopilotTheme.TextFaint,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = CopilotTheme.MonoFont,
+                                letterSpacing = 1.sp
+                            )
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                branch.followUps.forEach { suggestion ->
+                                    Row(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(CopilotTheme.PanelDark)
+                                            .border(0.6.dp, CopilotTheme.PurplePrimary.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                                        .clickable { onSelectFollowUp(suggestion) }
+                                        .padding(horizontal = 10.dp, vertical = 5.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "✦ $suggestion",
+                                            color = CopilotTheme.PurpleLight,
+                                            fontSize = 11.sp,
+                                            fontFamily = CopilotTheme.MonoFont
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Action Bar (Branching, Copy, Reload, Feedback)
+                    if (branch.content.isNotBlank() && !isCurrentlyGenerating) {
+                        AssistantActionBar(
+                            totalBranches = message.branches.size,
+                            currentBranchIndex = message.currentBranchIndex,
+                            feedbackState = branch.feedback,
+                            onBranchPrev = onBranchPrev,
+                            onBranchNext = onBranchNext,
+                            onCopy = onCopy,
+                            onReload = onReload,
+                            onFeedback = onFeedback
+                        )
+                    }
                 }
             }
         }

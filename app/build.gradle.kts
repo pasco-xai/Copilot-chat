@@ -119,6 +119,8 @@ dependencies {
   implementation(libs.okhttp)
   // implementation(libs.play.services.location)
   implementation(libs.retrofit)
+  // LiteRT-LM on-device inference for Gemma 4 models
+  implementation("com.google.ai.edge.litertlm:litertlm-android:0.13.1")
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)

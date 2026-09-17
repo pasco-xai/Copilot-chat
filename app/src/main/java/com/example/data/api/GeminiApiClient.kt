@@ -24,6 +24,7 @@ object GeminiApiClient {
     const val MODEL_PRO_THINKING = "gemini-3.1-pro-preview"
     const val MODEL_FLASH = "gemini-3.5-flash"
     const val MODEL_FLASH_LITE = "gemini-3.1-flash-lite-preview"
+    const val MODEL_GEMMA_LITERTLM = "gemma-4-E2B-it-litert-lm"
 
     private val okHttpClient = OkHttpClient.Builder()
         .connectTimeout(60, TimeUnit.SECONDS)
@@ -47,6 +48,13 @@ object GeminiApiClient {
         history: List<Pair<String, String>> = emptyList(),
         useThinking: Boolean = true,
         useSearch: Boolean = false,
+        temperature: Float = 0.2f,
+        thinkingBudget: String = "HIGH",
+        customSystemPrompt: String = "",
+        persona: String = "Senior Architect",
+        codeStyle: String = "Balanced",
+        includeUnitTests: Boolean = false,
+        maxOutputTokens: Int = 4096,
         onThoughtChunk: (String) -> Unit,
         onContentChunk: (String) -> Unit,
         onSources: (List<SourceReference>) -> Unit,
@@ -69,6 +77,13 @@ object GeminiApiClient {
                     history = history,
                     useThinking = useThinking,
                     useSearch = useSearch,
+                    temperature = temperature,
+                    thinkingBudget = thinkingBudget,
+                    customSystemPrompt = customSystemPrompt,
+                    persona = persona,
+                    codeStyle = codeStyle,
+                    includeUnitTests = includeUnitTests,
+                    maxOutputTokens = maxOutputTokens,
                     onThoughtChunk = onThoughtChunk,
                     onContentChunk = onContentChunk,
                     onSources = onSources,
@@ -85,6 +100,9 @@ object GeminiApiClient {
         simulateCopilotStream(
             prompt = prompt,
             model = model,
+            persona = persona,
+            codeStyle = codeStyle,
+            includeUnitTests = includeUnitTests,
             onThoughtChunk = onThoughtChunk,
             onContentChunk = onContentChunk,
             onSources = onSources,
@@ -101,6 +119,13 @@ object GeminiApiClient {
         history: List<Pair<String, String>>,
         useThinking: Boolean,
         useSearch: Boolean,
+        temperature: Float,
+        thinkingBudget: String,
+        customSystemPrompt: String,
+        persona: String,
+        codeStyle: String,
+        includeUnitTests: Boolean,
+        maxOutputTokens: Int,
         onThoughtChunk: (String) -> Unit,
         onContentChunk: (String) -> Unit,
         onSources: (List<SourceReference>) -> Unit,
@@ -139,13 +164,43 @@ object GeminiApiClient {
         val root = JSONObject()
         root.put("contents", contentsJson)
 
-        // System Instruction: Act as Claude Copilot
+        // System Instruction with Persona, Style & Custom Guidelines
+        val personaDesc = when (persona) {
+            "Senior Architect" -> "You are a Principal Software Architect. Focus on clean modularity, SOLID principles, scalability, decoupling, and production-readiness."
+            "Concise Minimalist" -> "You are an ultra-concise code assistant. Output only relevant code snippets and minimal bullet points. Avoid filler phrases and conversational chatter."
+            "Android Specialist" -> "You are a Staff Android Engineer. Specialize in Jetpack Compose, Kotlin 2.0, Flow, Coroutines, Material 3, and 120 FPS frame stability."
+            "Mentor & Explainer" -> "You are an experienced technical mentor. Walk through the reasoning behind technical trade-offs, potential pitfalls, and edge cases clearly."
+            else -> "You are Claude Copilot, an expert AI programming assistant."
+        }
+
+        val styleDesc = when (codeStyle) {
+            "Code Only" -> "Keep textual commentary strictly to an absolute minimum. Prioritize code blocks."
+            "Detailed" -> "Provide comprehensive architectural explanations, edge cases, and time/space complexity breakdown."
+            else -> "Provide a balanced explanation alongside clean code."
+        }
+
+        val testDesc = if (includeUnitTests) {
+            "Always include complete, ready-to-run unit tests or edge-case test suites for any implementation provided."
+        } else ""
+
+        val systemPromptText = buildString {
+            append(personaDesc)
+            if (customSystemPrompt.isNotBlank()) {
+                append("\n\nCustom Developer Guidelines:\n").append(customSystemPrompt.trim())
+            }
+            append("\n\n").append(styleDesc)
+            if (testDesc.isNotBlank()) {
+                append("\n").append(testDesc)
+            }
+            append("\nAlways format code blocks with language tags and follow modern idiomatic conventions.")
+        }
+
         val sysInstruction = JSONObject()
         val sysParts = JSONArray()
         sysParts.put(
             JSONObject().put(
                 "text",
-                "You are Claude Copilot, an expert AI programming assistant. Provide concise, clean, highly idiomatic code with One Dark Pro / GitHub syntax highlighting, structured reasoning, and actionable follow-up suggestions."
+                systemPromptText
             )
         )
         sysInstruction.put("parts", sysParts)
@@ -153,9 +208,13 @@ object GeminiApiClient {
 
         // Generation Config
         val genConfig = JSONObject()
+        genConfig.put("temperature", temperature)
+        if (maxOutputTokens > 0) {
+            genConfig.put("maxOutputTokens", maxOutputTokens)
+        }
         if (useThinking && model == MODEL_PRO_THINKING) {
             val thinkingConfig = JSONObject()
-            thinkingConfig.put("thinkingLevel", "HIGH")
+            thinkingConfig.put("thinkingLevel", thinkingBudget)
             genConfig.put("thinkingConfig", thinkingConfig)
         }
         root.put("generationConfig", genConfig)
@@ -259,6 +318,9 @@ object GeminiApiClient {
     private suspend fun simulateCopilotStream(
         prompt: String,
         model: String,
+        persona: String = "Senior Architect",
+        codeStyle: String = "Balanced",
+        includeUnitTests: Boolean = false,
         onThoughtChunk: (String) -> Unit,
         onContentChunk: (String) -> Unit,
         onSources: (List<SourceReference>) -> Unit,
@@ -268,10 +330,10 @@ object GeminiApiClient {
         val lower = prompt.lowercase()
 
         val reasoningSteps = listOf(
-            "1. Analysiere Codeanforderung ($model)\n",
-            "2. Evaluiere UI-Thread Belastung & 120 FPS Rendering-Pipeline\n",
-            "3. Prüfe Recomposition-Trigger, Stabilität (@Immutable) und Memory Allocations\n",
-            "4. Generiere syntaktisch valides Kotlin/Compose Snippet mit GitHub Dark Syntax"
+            "1. Analysiere Codeanforderung ($model • $persona)\n",
+            "2. Evaluiere Thread-Belastung, Style ($codeStyle) & Pipeline\n",
+            "3. Prüfe Recomposition-Trigger, Stabilität und Unit-Test Anforderungen\n",
+            "4. Generiere syntaktisch valides Snippet mit One Dark Pro Syntax"
         )
 
         for (step in reasoningSteps) {
@@ -286,9 +348,9 @@ object GeminiApiClient {
 
         if (lower.contains("lazycolumn") || lower.contains("120") || lower.contains("fps") || lower.contains("compose")) {
             codeSnippet = """
-Hier ist eine speicheroptimierte Jetpack Compose Implementierung für ruckelfreie 120 FPS auf ProMotion/High-Refresh-Displays:
+Hier ist eine speicheroptimierte UI-Listen-Implementierung für flüssiges Scrolling:
 
-```kotlin
+```
 @Composable
 fun FastCopilotChatList(
     messages: ImmutableList<ChatMessage>,
@@ -303,11 +365,11 @@ fun FastCopilotChatList(
     ) {
         items(
             items = messages,
-            key = { it.id } // ⚡ Stabiler Key verhindert Recompositions-Jank
+            key = { it.id }
         ) { message ->
             ChatMessageItem(
                 message = message,
-                modifier = Modifier.animateItem() // Flüssige Einfüge-Animationen
+                modifier = Modifier.animateItem()
             )
         }
     }
@@ -315,8 +377,8 @@ fun FastCopilotChatList(
 ```
 
 ### Performance-Vorteile:
-- **`key = { it.id }`**: Verhindert Neu-Layout unveränderter Listenelemente bei Token-Updates.
-- **`@Immutable` Datenklassen**: Ermöglicht Recomposition-Skipping im Compose-Compiler.
+- **`key = { it.id }`**: Verhindert Neu-Layout unveränderter Listenelemente bei Updates.
+- **`@Immutable` Datenklassen**: Ermöglicht Recomposition-Skipping im UI-Compiler.
 - **`derivedStateOf`**: Entkoppelt Scroll-Offsets vom Recomposition-Loop.
             """.trimIndent()
 
@@ -331,9 +393,9 @@ fun FastCopilotChatList(
             )
         } else if (lower.contains("coroutine") || lower.contains("flow") || lower.contains("backoff") || lower.contains("retry")) {
             codeSnippet = """
-Hier ist eine robuste Kotlin Coroutines Flow Pipeline mit **Exponential Backoff & Retry**:
+Hier ist eine robuste Asynchronous Flow Pipeline mit **Exponential Backoff & Retry**:
 
-```kotlin
+```
 fun <T> Flow<T>.retryWithExponentialBackoff(
     maxRetries: Int = 3,
     initialDelayMs: Long = 1000L,
@@ -349,7 +411,7 @@ fun <T> Flow<T>.retryWithExponentialBackoff(
 }
 ```
 
-Kann direkt mit `viewModelScope.launch` und `flowOn(Dispatchers.IO)` gekoppelt werden.
+Kann direkt in asynchrone Pipelines gekoppelt werden.
             """.trimIndent()
 
             sources = listOf(
@@ -363,9 +425,9 @@ Kann direkt mit `viewModelScope.launch` und `flowOn(Dispatchers.IO)` gekoppelt w
             )
         } else if (lower.contains("room") || lower.contains("sqlite") || lower.contains("sync") || lower.contains("offline")) {
             codeSnippet = """
-Hier ist eine saubere **Offline-First Room Sync Manager** Architektur:
+Hier ist eine saubere **Offline-First Sync Manager** Architektur:
 
-```kotlin
+```
 @Dao
 interface MessageDao {
     @Query("SELECT * FROM messages ORDER BY timestamp ASC")
@@ -398,37 +460,68 @@ class SyncRepository(
                 "Erstelle Room TypeConverter für Branching-Listen"
             )
         } else {
-            codeSnippet = """
+            val isPython = lower.contains("python") || lower.contains("py")
+            val isJs = lower.contains("javascript") || lower.contains("js") || lower.contains("typescript") || lower.contains("ts")
+
+            codeSnippet = if (isPython) {
+                """
 Ich habe deine Anfrage analysiert: **"$prompt"**
 
-Hier ist der idiomatische Kotlin + Jetpack Compose Lösungsvorschlag:
+Hier ist der Lösungsvorschlag in Python:
 
-```kotlin
-@Composable
-fun CopilotSolutionComponent(
-    modifier: Modifier = Modifier
-) {
-    // Reaktiver State mit optimalem Lifecycle-Scope
-    val state = remember { mutableStateOf("Copilot Ready") }
-
-    Surface(
-        color = CopilotTheme.PanelDark,
-        shape = RoundedCornerShape(10.dp),
-        border = BorderStroke(0.5.dp, CopilotTheme.BorderSubtle),
-        modifier = modifier.padding(8.dp)
-    ) {
-        Text(
-            text = state.value,
-            color = CopilotTheme.TextBright,
-            fontFamily = FontFamily.Monospace,
-            modifier = Modifier.padding(14.dp)
-        )
+```python
+def process_data(items: list) -> dict:
+    # Verarbeitet die Eingabedaten effizient
+    filtered = [x for x in items if x]
+    return {
+        "status": "success",
+        "count": len(filtered),
+        "results": filtered
     }
+
+if __name__ == "__main__":
+    sample = ["alpha", "copilot", "ready"]
+    print(process_data(sample))
+```
+
+Das Skript ist modular und direkt ausführbar.
+                """.trimIndent()
+            } else if (isJs) {
+                """
+Ich habe deine Anfrage analysiert: **"$prompt"**
+
+Hier ist der Lösungsvorschlag in JavaScript:
+
+```javascript
+export async function handleRequest(payload) {
+    console.log("Processing copilot task...", payload);
+    return {
+        status: "success",
+        timestamp: Date.now(),
+        data: payload
+    };
 }
 ```
 
-Alle Komponenten entsprechen der Claude Copilot Design-Spezifikation.
-            """.trimIndent()
+Das Modul ist asynchron und sofort einsetzbar.
+                """.trimIndent()
+            } else {
+                """
+Ich habe deine Anfrage analysiert: **"$prompt"**
+
+Hier ist der Lösungsvorschlag:
+
+```
+// Copilot Lösungsvorschlag
+fun handleCopilotAction(input: String): String {
+    val sanitized = input.trim()
+    return "Optimierte Ausfuehrung: " + sanitized
+}
+```
+
+Die Lösung ist schlank, modular und folgt aktuellen Best Practices.
+                """.trimIndent()
+            }
 
             sources = listOf(
                 SourceReference(title = "Claude Copilot Architecture", url = "https://docs.github.com/en/copilot"),
@@ -441,8 +534,31 @@ Alle Komponenten entsprechen der Claude Copilot Design-Spezifikation.
             )
         }
 
+        val finalCodeSnippet = buildString {
+            if (codeStyle == "Code Only") {
+                // Extract only code block
+                val codeStart = codeSnippet.indexOf("```")
+                if (codeStart != -1) {
+                    val codeEnd = codeSnippet.lastIndexOf("```")
+                    if (codeEnd != -1 && codeEnd > codeStart) {
+                        append(codeSnippet.substring(codeStart, codeEnd + 3))
+                    } else {
+                        append(codeSnippet)
+                    }
+                } else {
+                    append(codeSnippet)
+                }
+            } else {
+                append(codeSnippet)
+            }
+
+            if (includeUnitTests) {
+                append("\n\n### Automated Unit Test Suite\n```kotlin\n@Test\nfun verifySolutionAndEdgeCases() = runTest {\n    // Automated verification generated via AI Settings\n    val result = handleCopilotAction(\"test_input\")\n    assertNotNull(result)\n    assertTrue(result.isNotEmpty())\n}\n```")
+            }
+        }
+
         // Stream tokens realistically (chunks of 3-5 words)
-        val tokens = codeSnippet.split(" ")
+        val tokens = finalCodeSnippet.split(" ")
         for (i in tokens.indices) {
             if (isCancelled()) return
             delay(24)
